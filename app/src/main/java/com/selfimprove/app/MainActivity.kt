@@ -179,6 +179,13 @@ private fun SelfImproveApp(context: Context) {
                                 Button(onClick = { journalDraft = journal; showJournal = true }, colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Ink)) { Text("Write journal") }
                             }
                         }
+                        item {
+                            Spacer(Modifier.height(10.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                                Text("Made by ", color = Muted, fontSize = 12.sp)
+                                Text("AR BADDI", color = Gold, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                            }
+                        }
                     }
                     1 -> {
                         item { SectionTitle("DAILY NAMAZ • HANAFI ASR") }
