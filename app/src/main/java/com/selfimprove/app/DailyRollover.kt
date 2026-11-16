@@ -59,10 +59,10 @@ object DailyRollover {
 
         val completedPrayers = prayerNames.filterIndexed { i, _ -> prayerFlags[i] }
         val completedHabits = habitNames.filterIndexed { i, _ -> habitFlags[i] }
-        val prayerText = "Namaz ${completedPrayers.size}/5" +
-            if (completedPrayers.isEmpty()) "" else ": ${completedPrayers.joinToString(", ")}"
-        val habitText = if (completedHabits.isEmpty()) "No habits marked complete" else
-            "Completed: ${completedHabits.joinToString(", ")}"
+        val prayerNamesText = completedPrayers.joinToString(", ")
+        val habitNamesText = completedHabits.joinToString(", ")
+        val prayerText = if (completedPrayers.isEmpty()) "Namaz 0/5" else "Namaz ${completedPrayers.size}/5: $prayerNamesText"
+        val habitText = if (completedHabits.isEmpty()) "No habits marked complete" else "Completed: $habitNamesText"
         return "$prayerText • $habitText • XP: $newXp"
     }
 
