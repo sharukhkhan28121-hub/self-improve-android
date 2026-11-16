@@ -1,6 +1,9 @@
 package com.selfimprove.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -38,6 +41,12 @@ private val habits = listOf("Exercise", "Study", "Sleep on time", "Daily journal
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val summary = DailyRollover.rollover(this)
+        if (summary != null) DailyRollover.showSummaryNotification(this, summary)
+        DailyRollover.scheduleNextMidnight(this)
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 901)
+        }
         setContent { SelfImproveApp(this) }
     }
 }
@@ -88,25 +97,20 @@ private fun SelfImproveApp(context: Context) {
         saveXp(xp + if (checked) 10 else -10)
     }
 
-    fun resetDay(newDay: String, chargeMissedPrayers: Boolean = true) {
-        // Every uncompleted prayer is charged 20 XP once at day rollover.
-        if (chargeMissedPrayers) saveXp(xp - prayerDone.count { !it } * 20)
+    fun resetDay(newDay: String) {
+        val summary = DailyRollover.rollover(context, newDay)
+        if (summary != null) DailyRollover.showSummaryNotification(context, summary)
+        DailyRollover.scheduleNextMidnight(context)
+        xp = prefs.getInt("xp", xp)
         prayerDone = List(prayers.size) { false }
         habitDone = List(habits.size) { false }
         journal = ""
         journalDraft = ""
-        prefs.edit()
-            .putString("day", newDay)
-            .putString("prayers", JSONArray().apply { repeat(prayers.size) { put(false) } }.toString())
-            .putString("habits", JSONArray().apply { repeat(habits.size) { put(false) } }.toString())
-            .putString("journal_$newDay", "")
-            .apply()
     }
 
     LaunchedEffect(Unit) {
         if (dayChanged) {
-            prefs.edit().putInt("xp", xp).apply()
-            resetDay(today, chargeMissedPrayers = false)
+            resetDay(today)
         } else if (firstLaunch) {
             prefs.edit().putString("day", today).apply()
             saveFlags("prayers", prayerDone)
