@@ -88,9 +88,9 @@ private fun SelfImproveApp(context: Context) {
         saveXp(xp + if (checked) 10 else -10)
     }
 
-    fun resetDay(newDay: String) {
+    fun resetDay(newDay: String, chargeMissedPrayers: Boolean = true) {
         // Every uncompleted prayer is charged 20 XP once at day rollover.
-        saveXp(xp - prayerDone.count { !it } * 20)
+        if (chargeMissedPrayers) saveXp(xp - prayerDone.count { !it } * 20)
         prayerDone = List(prayers.size) { false }
         habitDone = List(habits.size) { false }
         journal = ""
@@ -106,7 +106,7 @@ private fun SelfImproveApp(context: Context) {
     LaunchedEffect(Unit) {
         if (dayChanged) {
             prefs.edit().putInt("xp", xp).apply()
-            resetDay(today)
+            resetDay(today, chargeMissedPrayers = false)
         } else if (firstLaunch) {
             prefs.edit().putString("day", today).apply()
             saveFlags("prayers", prayerDone)
