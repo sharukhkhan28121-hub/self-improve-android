@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -217,6 +218,14 @@ private fun SelfImproveApp(context: Context) {
                         item { SectionTitle("TODAY'S STATS") }
                         item { SummaryRow("Namaz XP earned", "${prayerDone.count { it } * 20} XP") }
                         item { SummaryRow("Habit XP earned", "${habitDone.count { it } * 10} XP") }
+                        item { SectionTitle("RECENT HISTORY") }
+                        (1L..7L).forEach { daysAgo ->
+                            val historyDate = LocalDate.now().minusDays(daysAgo).toString()
+                            val historyJson = prefs.getString("history_$historyDate", null)
+                            if (historyJson != null) {
+                                item { HistoryCard(historyDate, historyJson) }
+                            }
+                        }
                     }
                 }
             }
@@ -301,5 +310,24 @@ private fun loadFlags(prefs: android.content.SharedPreferences, key: String, cou
         List(count) { index -> json.optBoolean(index, false) }
     } catch (_: Exception) {
         List(count) { false }
+    }
+}
+
+
+@Composable
+private fun HistoryCard(date: String, raw: String) {
+    val record = remember(raw) { JSONObject(raw) }
+    val prayerArray = record.optJSONArray("prayers") ?: JSONArray()
+    val habitArray = record.optJSONArray("habits") ?: JSONArray()
+    val prayersDone = (0 until prayerArray.length()).count { prayerArray.optBoolean(it, false) }
+    val habitsDone = (0 until habitArray.length()).count { habitArray.optBoolean(it, false) }
+    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(14.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(date, color = Gold, fontWeight = FontWeight.Bold)
+            Text("Namaz: $prayersDone/5  •  Habits: $habitsDone/4", color = White, fontSize = 13.sp)
+            Text("XP after day-end: ${record.optInt("xpAfterRollover", 0)}", color = Muted, fontSize = 11.sp)
+            val journalText = record.optString("journal", "")
+            if (journalText.isNotBlank()) Text("Journal: $journalText", color = Muted, fontSize = 12.sp, maxLines = 2)
+        }
     }
 }
