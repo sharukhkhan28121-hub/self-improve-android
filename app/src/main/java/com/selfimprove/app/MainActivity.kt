@@ -4,10 +4,14 @@ import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,15 +20,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.delay
 import org.json.JSONArray
-import org.json.JSONObject
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private val Ink = Color(0xFF101014)
 private val Panel = Color(0xFF1B1B22)
 private val Gold = Color(0xFFE3B943)
 private val Muted = Color(0xFFAAAAB4)
 private val White = Color(0xFFF7F4EA)
+private val prayers = listOf("Fajr", "Dhuhr", "Asr (Hanafi)", "Maghrib", "Isha")
+private val habits = listOf("Exercise", "Study", "Sleep on time", "Daily journal")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,192 +45,215 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SelfImproveApp(context: Context) {
     val prefs = remember { context.getSharedPreferences("self_improve", Context.MODE_PRIVATE) }
-    val prayers = listOf("Fajr", "Dhuhr", "Asr (Hanafi)", "Maghrib", "Isha")
-    val habits = listOf("Exercise", "Study", "Sleep on time", "Daily journal")
-    var xp by remember { mutableIntStateOf(prefs.getInt("xp", 0)) }
-    var prayerDone by remember { mutableStateOf(loadFlags(prefs, "prayers", prayers.size)) }
-    var habitDone by remember { mutableStateOf(loadFlags(prefs, "habits", habits.size)) }
-    var journal by remember { mutableStateOf(prefs.getString("journal", "") ?: "") }
-    var showJournal by remember { mutableStateOf(false) }
-    var pendingMiss by remember { mutableStateOf<String?>(null) }
+    val today = LocalDate.now().toString()
+    val storedDay = remember { prefs.getString("day", null) }
+    val firstLaunch = storedDay == null
+    val dayChanged = storedDay != null && storedDay != today
+    val oldPrayers = remember { loadFlags(prefs, "prayers", prayers.size) }
+    val openingPenalty = if (dayChanged) oldPrayers.count { !it } * 20 else 0
 
-    val level = remember(xp) {
-        var remaining = xp.coerceAtLeast(0)
-        var current = 1
-        while (current < 100 && remaining >= current * 60) {
-            remaining -= current * 60
-            current++
-        }
-        current
-    }
-    val xpIntoLevel = remember(xp) {
-        var remaining = xp.coerceAtLeast(0)
-        var current = 1
-        while (current < 100 && remaining >= current * 60) {
-            remaining -= current * 60
-            current++
-        }
-        remaining
-    }
-    val levelTarget = if (level == 100) 0 else level * 60
+    var xp by remember { mutableIntStateOf((prefs.getInt("xp", 0) - openingPenalty).coerceAtLeast(0)) }
+    var prayerDone by remember { mutableStateOf(if (dayChanged || firstLaunch) List(prayers.size) { false } else oldPrayers) }
+    var habitDone by remember { mutableStateOf(if (dayChanged || firstLaunch) List(habits.size) { false } else loadFlags(prefs, "habits", habits.size)) }
+    var journal by remember { mutableStateOf(if (dayChanged || firstLaunch) "" else prefs.getString("journal_$today", "") ?: "") }
+    var journalDraft by remember { mutableStateOf(journal) }
+    var showJournal by remember { mutableStateOf(false) }
+    var activeTab by remember { mutableIntStateOf(0) }
+    var now by remember { mutableStateOf(LocalDateTime.now()) }
 
     fun saveXp(value: Int) {
         xp = value.coerceAtLeast(0)
         prefs.edit().putInt("xp", xp).apply()
     }
-    fun setFlag(key: String, index: Int, value: Boolean, list: List<Boolean>) {
-        val updated = list.toMutableList()
-        updated[index] = value
-        if (key == "prayers") prayerDone = updated else habitDone = updated
+
+    fun saveFlags(key: String, values: List<Boolean>) {
         val json = JSONArray()
-        updated.forEach { json.put(it) }
+        values.forEach { json.put(it) }
         prefs.edit().putString(key, json.toString()).apply()
     }
 
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            background = Ink, surface = Panel, primary = Gold,
-            onPrimary = Ink, onBackground = White, onSurface = White,
-            secondary = Gold
-        )
-    ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = Ink) {
+    fun setPrayer(index: Int, checked: Boolean) {
+        if (prayerDone[index] == checked) return
+        val updated = prayerDone.toMutableList().also { it[index] = checked }
+        prayerDone = updated
+        saveFlags("prayers", updated)
+        saveXp(xp + if (checked) 20 else -20)
+    }
+
+    fun setHabit(index: Int, checked: Boolean) {
+        if (habitDone[index] == checked) return
+        val updated = habitDone.toMutableList().also { it[index] = checked }
+        habitDone = updated
+        saveFlags("habits", updated)
+        saveXp(xp + if (checked) 10 else -10)
+    }
+
+    fun resetDay(newDay: String) {
+        // Every uncompleted prayer is charged 20 XP once at day rollover.
+        saveXp(xp - prayerDone.count { !it } * 20)
+        prayerDone = List(prayers.size) { false }
+        habitDone = List(habits.size) { false }
+        journal = ""
+        journalDraft = ""
+        prefs.edit()
+            .putString("day", newDay)
+            .putString("prayers", JSONArray().apply { repeat(prayers.size) { put(false) } }.toString())
+            .putString("habits", JSONArray().apply { repeat(habits.size) { put(false) } }.toString())
+            .putString("journal_$newDay", "")
+            .apply()
+    }
+
+    LaunchedEffect(Unit) {
+        if (dayChanged) {
+            prefs.edit().putInt("xp", xp).apply()
+            resetDay(today)
+        } else if (firstLaunch) {
+            prefs.edit().putString("day", today).apply()
+            saveFlags("prayers", prayerDone)
+            saveFlags("habits", habitDone)
+        }
+        while (true) {
+            delay(1000)
+            now = LocalDateTime.now()
+            val currentDay = now.toLocalDate().toString()
+            if (prefs.getString("day", currentDay) != currentDay) resetDay(currentDay)
+        }
+    }
+
+    val (level, xpInLevel) = calculateLevel(xp)
+    val dateLabel = now.format(DateTimeFormatter.ofPattern("EEEE, dd MMM yyyy", Locale.ENGLISH))
+    val timeLabel = now.format(DateTimeFormatter.ofPattern("hh:mm:ss a", Locale.ENGLISH))
+
+    MaterialTheme(colorScheme = darkColorScheme(
+        background = Ink, surface = Panel, primary = Gold,
+        onPrimary = Ink, onBackground = White, onSurface = White, secondary = Gold
+    )) {
+        Scaffold(
+            containerColor = Ink,
+            bottomBar = {
+                NavigationBar(containerColor = Panel) {
+                    NavigationBarItem(activeTab == 0, { activeTab = 0 }, icon = { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
+                    NavigationBarItem(activeTab == 1, { activeTab = 1 }, icon = { Icon(Icons.Default.MenuBook, null) }, label = { Text("Namaz") })
+                    NavigationBarItem(activeTab == 2, { activeTab = 2 }, icon = { Icon(Icons.Default.CheckCircle, null) }, label = { Text("Habits") })
+                    NavigationBarItem(activeTab == 3, { activeTab = 3 }, icon = { Icon(Icons.Default.Star, null) }, label = { Text("Progress") })
+                }
+            }
+        ) { padding ->
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp),
-                contentPadding = PaddingValues(top = 24.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp),
+                contentPadding = PaddingValues(top = 18.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(13.dp)
             ) {
                 item {
-                    Text("SELF IMPROVE", color = Gold, fontSize = 27.sp, fontWeight = FontWeight.Black)
-                    Text("BUILD A BETTER YOU • EVERY DAY", color = Muted, fontSize = 11.sp, letterSpacing = 1.5.sp)
-                }
-                item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(20.dp)) {
-                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                                Column {
-                                    Text("YOUR LEVEL", color = Muted, fontSize = 12.sp)
-                                    Text("LEVEL $level", color = Gold, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                                }
-                                Text("$xp XP", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            }
-                            if (level < 100) {
-                                LinearProgressIndicator(
-                                    progress = { (xpIntoLevel.toFloat() / levelTarget.toFloat()).coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth().height(9.dp),
-                                    color = Gold,
-                                    trackColor = Color(0xFF39343A)
-                                )
-                                Text("$xpIntoLevel / $levelTarget XP to Level ${level + 1}", color = Muted, fontSize = 12.sp)
-                            } else {
-                                Text("ULTIMATE MASTER • MAX LEVEL", color = Gold, fontWeight = FontWeight.Bold)
-                            }
-                            Text("Level N requires ${60 * level} XP to advance. XP carries forward.", color = Muted, fontSize = 11.sp)
+                    Text("SELF IMPROVE", color = Gold, fontSize = 26.sp, fontWeight = FontWeight.Black)
+                    Text("BUILD A BETTER YOU • EVERY DAY", color = Muted, fontSize = 10.sp, letterSpacing = 1.4.sp)
+                    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(16.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                            Text(dateLabel, color = White, fontWeight = FontWeight.SemiBold)
+                            Text(timeLabel, color = Gold, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                            Text("Device local time", color = Muted, fontSize = 10.sp)
                         }
                     }
                 }
-                item { SectionTitle("DAILY NAMAZ", "Hanafi Asr") }
-                items(prayers.size) { index ->
-                    TrackerRow(
-                        title = prayers[index],
-                        subtitle = if (index == 2) "Hanafi calculation preference" else "Daily prayer",
-                        checked = prayerDone[index],
-                        onChecked = { checked ->
-                            if (checked) {
-                                setFlag("prayers", index, true, prayerDone)
-                                saveXp(xp + 20)
-                            } else pendingMiss = prayers[index]
+                when (activeTab) {
+                    0 -> {
+                        item {
+                            InfoCard("YOUR LEVEL", "LEVEL $level", "$xp XP") {
+                                if (level < 100) {
+                                    LinearProgressIndicator(
+                                        progress = { (xpInLevel.toFloat() / (level * 60).toFloat()).coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth().height(8.dp),
+                                        color = Gold, trackColor = Color(0xFF39343A)
+                                    )
+                                    Text("$xpInLevel / ${level * 60} XP to Level ${level + 1}", color = Muted, fontSize = 12.sp)
+                                } else Text("MAX LEVEL 100", color = Gold, fontWeight = FontWeight.Bold)
+                                Text("Each next level requires level × 60 XP.", color = Muted, fontSize = 11.sp)
+                            }
                         }
-                    )
-                }
-                item { SectionTitle("DAILY HABITS", "Build consistency") }
-                items(habits.size) { index ->
-                    TrackerRow(
-                        title = habits[index],
-                        subtitle = "Daily habit",
-                        checked = habitDone[index],
-                        onChecked = { checked ->
-                            if (checked) {
-                                setFlag("habits", index, true, habitDone)
-                                saveXp(xp + 10)
-                            } else pendingMiss = habits[index]
-                        }
-                    )
-                }
-                item {
-                    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("DAILY JOURNAL", color = Gold, fontWeight = FontWeight.Bold)
-                            Text(if (journal.isBlank()) "Write a short reflection for today." else journal, color = Muted, fontSize = 13.sp, maxLines = 3)
-                            Button(onClick = { showJournal = true }, colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Ink)) {
-                                Text("Open journal")
+                        item { SectionTitle("TODAY AT A GLANCE") }
+                        item { SummaryRow("Namaz completed", "${prayerDone.count { it }} / 5") }
+                        item { SummaryRow("Habits completed", "${habitDone.count { it }} / ${habits.size}") }
+                        item {
+                            InfoCard("DAILY JOURNAL", "Today's reflection", "") {
+                                Text(if (journal.isBlank()) "No entry saved today." else journal, color = Muted, maxLines = 3)
+                                Button(onClick = { journalDraft = journal; showJournal = true }, colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Ink)) { Text("Write journal") }
                             }
                         }
                     }
-                }
-                item {
-                    Text("Note: Prayer times and automatic reminders are not enabled in this starter version.", color = Muted, fontSize = 11.sp)
+                    1 -> {
+                        item { SectionTitle("DAILY NAMAZ • HANAFI ASR") }
+                        item { Text("Each completed prayer earns 20 XP. Each prayer left incomplete at midnight deducts 20 XP.", color = Muted, fontSize = 12.sp) }
+                        items(prayers.size) { i -> TrackerRow(prayers[i], if (i == 2) "Hanafi Asr" else "Daily prayer", prayerDone[i]) { setPrayer(i, it) } }
+                    }
+                    2 -> {
+                        item { SectionTitle("DAILY HABITS") }
+                        item { Text("Each completed habit earns 10 XP. Checklist resets automatically on the next date.", color = Muted, fontSize = 12.sp) }
+                        items(habits.size) { i -> TrackerRow(habits[i], "+10 XP", habitDone[i]) { setHabit(i, it) } }
+                        item {
+                            InfoCard("DAILY JOURNAL", "Today's notes", "") {
+                                Text(if (journal.isBlank()) "No entry saved today." else journal, color = Muted, maxLines = 3)
+                                Button(onClick = { journalDraft = journal; showJournal = true }, colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Ink)) { Text("Open journal") }
+                            }
+                        }
+                    }
+                    else -> {
+                        item {
+                            InfoCard("PROGRESS", "LEVEL $level", "$xp XP") {
+                                Text(if (level == 100) "You reached the maximum level." else "${level * 60 - xpInLevel} XP needed for Level ${level + 1}.", color = Muted)
+                                Text("Level 1 to 100 • XP total carries across days.", color = Muted, fontSize = 12.sp)
+                            }
+                        }
+                        item { SectionTitle("TODAY'S STATS") }
+                        item { SummaryRow("Namaz XP earned", "${prayerDone.count { it } * 20} XP") }
+                        item { SummaryRow("Habit XP earned", "${habitDone.count { it } * 10} XP") }
+                    }
                 }
             }
         }
     }
 
-    if (pendingMiss != null) {
+    if (showJournal) {
         AlertDialog(
-            onDismissRequest = { pendingMiss = null },
-            title = { Text("Confirm missed item?") },
-            text = { Text("Mark ${pendingMiss} as missed? 20 XP will be deducted for Namaz, or 10 XP for a daily habit. No XP will be deducted until you confirm.") },
+            onDismissRequest = { showJournal = false },
+            title = { Text("Daily journal") },
+            text = { OutlinedTextField(value = journalDraft, onValueChange = { journalDraft = it }, label = { Text("Today's reflection") }, minLines = 4) },
             confirmButton = {
                 TextButton(onClick = {
-                    val name = pendingMiss ?: return@TextButton
-                    val pIndex = prayers.indexOf(name)
-                    val hIndex = habits.indexOf(name)
-                    if (pIndex >= 0) setFlag("prayers", pIndex, false, prayerDone)
-                    if (hIndex >= 0) setFlag("habits", hIndex, false, habitDone)
-                    saveXp(xp - if (pIndex >= 0) 20 else 10)
-                    pendingMiss = null
-                }) { Text("Confirm deduction", color = Gold) }
+                    journal = journalDraft
+                    prefs.edit().putString("journal_$today", journal).apply()
+                    showJournal = false
+                }) { Text("Save", color = Gold) }
             },
-            dismissButton = { TextButton(onClick = { pendingMiss = null }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showJournal = false }) { Text("Cancel") } }
         )
     }
-    if (showJournal) {
-        var draft by remember { mutableStateOf(journal) }
-        Dialog(onDismissRequest = { showJournal = false }) {
-            Card(colors = CardDefaults.cardColors(containerColor = Panel)) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Daily journal", color = Gold, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(value = draft, onValueChange = { draft = it }, label = { Text("Today's reflection") }, minLines = 4)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { showJournal = false }) { Text("Cancel") }
-                        Button(onClick = {
-                            journal = draft
-                            prefs.edit().putString("journal", journal).apply()
-                            showJournal = false
-                        }, colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Ink)) { Text("Save") }
-                    }
+}
+
+@Composable
+private fun InfoCard(title: String, heading: String, trailing: String, content: @Composable ColumnScope.() -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text(title, color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(heading, color = Gold, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 }
+                if (trailing.isNotBlank()) Text(trailing, color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
+            content()
         }
     }
 }
 
 @Composable
-private fun SectionTitle(title: String, detail: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = Gold, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-        Text(detail, color = Muted, fontSize = 11.sp)
-    }
+private fun SectionTitle(title: String) {
+    Text(title, color = Gold, fontWeight = FontWeight.Bold, fontSize = 15.sp)
 }
 
 @Composable
 private fun TrackerRow(title: String, subtitle: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(14.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, color = White, fontWeight = FontWeight.SemiBold)
                 Text(subtitle, color = Muted, fontSize = 11.sp)
@@ -229,6 +261,26 @@ private fun TrackerRow(title: String, subtitle: String, checked: Boolean, onChec
             Checkbox(checked = checked, onCheckedChange = onChecked, colors = CheckboxDefaults.colors(checkedColor = Gold, uncheckedColor = Muted, checkmarkColor = Ink))
         }
     }
+}
+
+@Composable
+private fun SummaryRow(label: String, value: String) {
+    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(12.dp)) {
+        Row(Modifier.fillMaxWidth().padding(15.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = White, fontSize = 13.sp)
+            Text(value, color = Gold, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
+    }
+}
+
+private fun calculateLevel(totalXp: Int): Pair<Int, Int> {
+    var remaining = totalXp.coerceAtLeast(0)
+    var level = 1
+    while (level < 100 && remaining >= level * 60) {
+        remaining -= level * 60
+        level++
+    }
+    return level to remaining
 }
 
 private fun loadFlags(prefs: android.content.SharedPreferences, key: String, count: Int): List<Boolean> {
