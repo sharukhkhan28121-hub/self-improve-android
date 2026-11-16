@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.selfimprove.app"
     compileSdk = 35
+
     defaultConfig {
         applicationId = "com.selfimprove.app"
         minSdk = 26
@@ -14,7 +15,19 @@ android {
         versionCode = 1
         versionName = "1.0"
     }
-    buildFeatures { compose = true }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+    }
 }
 
 dependencies {
