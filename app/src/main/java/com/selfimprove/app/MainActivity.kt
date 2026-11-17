@@ -181,7 +181,7 @@ private fun SelfImproveApp(context: Context) {
             bottomBar = {
                 NavigationBar(containerColor = SurfaceDark, contentColor = Neon) {
                     val labels = listOf("Home", "Namaz", "Habits", "Progress", "Settings")
-                    val icons = listOf(Icons.Default.Home, Icons.Default.Mosque, Icons.Default.CheckCircle, Icons.Default.Insights, Icons.Default.Settings)
+                    val icons = listOf(Icons.Default.Home, Icons.Default.Favorite, Icons.Default.CheckCircle, Icons.Default.Insights, Icons.Default.Settings)
                     labels.forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = tab == index, onClick = { tab = index },
@@ -243,7 +243,7 @@ private fun SelfImproveApp(context: Context) {
                         item { SectionHeader("TODAY'S OVERVIEW", "Your consistency, one day at a time") }
                         item {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                MetricCard("NAMAZ", "${prayerDone.count { it }}/5", Icons.Default.Mosque, Modifier.weight(1f))
+                                MetricCard("NAMAZ", "${prayerDone.count { it }}/5", Icons.Default.Favorite, Modifier.weight(1f))
                                 MetricCard("HABITS", "${habitDone.count { it }}/4", Icons.Default.CheckCircle, Modifier.weight(1f))
                                 MetricCard("DONE", "${(completed * 100 / total)}%", Icons.Default.Bolt, Modifier.weight(1f))
                             }
@@ -304,7 +304,7 @@ private fun SelfImproveApp(context: Context) {
                             }
                         }
                         item { SectionHeader("TODAY'S SCORE", "Keep showing up") }
-                        item { MetricCard("NAMAZ XP", "${prayerDone.count { it } * 20}", Icons.Default.Mosque, Modifier.fillMaxWidth()) }
+                        item { MetricCard("NAMAZ XP", "${prayerDone.count { it } * 20}", Icons.Default.Favorite, Modifier.fillMaxWidth()) }
                         item { MetricCard("HABIT XP", "${habitDone.count { it } * 10}", Icons.Default.Bolt, Modifier.fillMaxWidth()) }
                         item { SectionHeader("RECENT HISTORY", "Your saved daily records") }
                         (1L..30L).forEach { daysAgo ->
